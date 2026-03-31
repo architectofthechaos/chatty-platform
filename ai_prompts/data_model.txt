@@ -1,0 +1,166 @@
+All data models can be defined in sqlalchemy
+We can use sqllite as the db backend
+We do not need to save the database when the app shuts down. It is just a temporary db.
+
+Each model should have a uuid v4 as the id 
+
+Each model should have a created_date and last_updated_date that are
+automatically set within the model
+
+
+The models are basically:
+- A user has a name and a handle
+  - The handle cannot have spaces or special characters
+  - Convert the handle to lowercase for storage
+    - It can only be letters, numbers, or underscore
+  - The handle is unique
+
+- A chatroom has a name
+  - The name needs to be unique
+  - The name should be lowercased for storage
+  - It can only be letters, numbers, or underscore characters
+
+- A message contains a message_text property of 1024 chars max
+- A message must have one-and-only-one user_id associated with It
+- A message must have one-and-only-one chatroom associated with It
+- A message has a boolean property is_reply defaulted to false
+- The message has a property of parent_message_id that must be populated
+only when is_reply = true.
+
+- A model called chatroom_participant is an xref table containing 
+user_id and chatroom_id
+- Also add a property for joined date
+
+
+
+Tips for db models and request / response syntax:
+
+API Request / Response Pattern
+Request objects (client → server)
+
+Don’t include id, created_date, or last_updated_date.
+
+Only accept fields that the client controls.
+
+Example:
+
+POST /users
+{
+  "name": "Alice Wonderland",
+  "handle": "alice_w"
+}
+
+Response objects (server → client)
+
+Always include server-generated fields (id, created_date, last_updated_date).
+
+Return normalized values (e.g., lowercase handle).
+
+Example:
+
+{
+  "id": "7b9b7b80-3c84-46f1-92b3-ef26aa5ad83d",
+  "name": "Alice Wonderland",
+  "handle": "alice_w",
+  "created_date": "2025-09-24T18:12:01Z",
+  "last_updated_date": "2025-09-24T18:12:01Z"
+}
+
+3. Common API Patterns
+
+POST (create) → request excludes id, response includes it.
+
+GET (read) → return full object with metadata.
+
+PUT/PATCH (update) → request only includes editable fields; id, created_date, etc. are ignored or read-only.
+
+DELETE → usually just returns { "deleted": true } or 204 No Content.
+
+4. Specific Tips for Your Models
+
+User
+
+Enforce regex like ^[a-z0-9_]+$ for handles.
+
+Before insert: handle = handle.lower().
+
+Chatroom
+
+Same as user handle: lowercase + unique + regex check.
+
+Message
+
+Enforce len(message_text) <= 1024.
+
+If is_reply = true, require parent_message_id (validate at API or model).
+
+ChatroomParticipant
+
+Composite primary key (user_id, chatroom_id).
+
+Usually no extra metadata unless you want joined_date.
+
+5. API Examples
+Create chatroom
+
+Request
+
+POST /chatrooms
+{
+  "name": "general"
+}
+
+
+Response
+
+{
+  "id": "c2d1e97f-4ab2-4c3c-8ec2-11c58dc632e7",
+  "name": "general",
+  "created_date": "2025-09-24T18:15:11Z",
+  "last_updated_date": "2025-09-24T18:15:11Z"
+}
+
+6. General Principles
+
+Request ≠ DB model
+→ strip out server-managed fields.
+
+Response = DB model + metadata
+→ always include IDs, timestamps.
+
+Normalize + validate at persistence boundary
+→ don’t trust input; enforce rules before committing.
+
+Consistency
+→ same shape for create/read/update responses.
+
+
+For response models, also include the status codes
+
+Success Codes
+
+200 OK → for GET and PUT/PATCH (read/update success).
+
+201 Created → for POST (new resource created).
+
+204 No Content → for DELETE (resource deleted successfully, no body).
+
+Client Error Codes
+
+400 Bad Request → generic invalid request (if it doesn’t fit other categories).
+
+401 Unauthorized → if you later add auth.
+
+403 Forbidden → request understood but not allowed (e.g. user not in chatroom).
+
+404 Not Found → resource doesn’t exist (user, chatroom, message).
+
+409 Conflict → uniqueness constraint violation (e.g. handle or chatroom name already exists).
+
+422 Unprocessable Entity → FastAPI/Pydantic automatically raises this if request body fails validation.
+
+Server Error Codes
+
+500 Internal Server Error → unexpected errors you didn’t anticipate.
+
+

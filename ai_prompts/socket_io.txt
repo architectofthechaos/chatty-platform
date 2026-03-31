@@ -1,0 +1,55 @@
+Instructions for AI Code Generation (FastAPI + Socket.IO Chat App)
+
+# Dependencies & Setup
+Add python-socketio to your existing dependencies in pyproject.toml (uvicorn is already installed).
+Use socketio.AsyncServer with asgi_app=True to integrate into your existing FastAPI app.
+Leave a TODO comment re CORS where needed, but do not implement any code initially
+
+# App Structure
+Create a socketio server instance in your existing main.py.
+Mount the Socket.IO app inside your existing FastAPI app using app.mount('/socket.io/', socketio_app) so both HTTP routes and WebSocket events work.
+Your existing SQLAlchemy setup in core/database.py already handles message persistence - just add the Socket.IO emission after successful database save.
+
+# Endpoints
+Modify your existing POST /messages/ endpoint in routers/messages.py to:
+- Save the message to the database (existing functionality).
+- After successful save, emit a new_message event to the appropriate room via socketio.emit().
+- Import your existing models and database session in Socket.IO event handlers to maintain consistency with your REST API.
+
+# Socket.IO Event Handlers
+Implement connect and disconnect events.
+Support join_room and leave_room for room-based chat using your existing chatroom model.
+Do not worry now about logging or broadcasting user status
+
+# Event Names
+Use consistent event names, e.g.:
+"connect"
+"disconnect"
+"join"
+"leave"
+"new_message"
+
+# Example Workflow
+Client connects → emits "join" with room info.
+Server acknowledges join → client listens for "new_message".
+When someone posts via your existing HTTP API → server saves to database → emits "new_message" to that room.
+
+# Code Quality
+Use async/await style (AsyncServer, await emit).
+Keep separation of concerns: database logic in your existing endpoints, event logic in Socket.IO handlers.
+Your existing run.py already provides the uvicorn entrypoint - no changes needed.
+
+# Testing
+For smoke testing, add python-socketio[client] dependency and create Socket.IO client tests in your existing tests_smoke/ directory.
+Test the integration between your existing REST API and Socket.IO functionality.
+
+# Integration Points
+Reference your existing infrastructure:
+app/src/chatty/main.py - for app setup
+app/src/chatty/routers/messages.py - for message endpoint modification
+app/src/chatty/core/database.py - for database integration
+app/src/chatty/models/ - for existing data models
+app/tests_smoke/smoke_test.py - for testing structure
+
+Leave a TODO comment in the code re configure CORS in your existing
+FastAPI app setup, not as a separate step.
