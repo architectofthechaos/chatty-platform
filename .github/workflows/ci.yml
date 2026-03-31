@@ -1,3 +1,14 @@
+# CI Pipeline for Chatty Backend
+#
+# Job dependency graph:
+#   lint ──┐
+#          ├──> build (Docker image)
+#   test ──┤
+#          └──> openapi (spec artifact)
+#
+# lint and test run in parallel (no `needs` key).
+# build and openapi only run after both pass.
+
 name: CI
 
 on:
@@ -24,6 +35,8 @@ jobs:
       - name: Install Poetry
         run: pip install poetry==2.2.0
 
+      # Cache Poetry's virtualenv + package cache to speed up subsequent runs.
+      # Key is based on the lock file -- cache busts when dependencies change.
       - name: Cache Poetry dependencies
         uses: actions/cache@v4
         with:
@@ -34,6 +47,8 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
+      # Two checks: linting rules (ruff check) and formatting consistency (ruff format --check).
+      # Both must pass -- enforces code style across all contributors.
       - name: Run ruff linter
         run: poetry run ruff check src/ tests/
 
@@ -67,6 +82,8 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
+      # JUnit XML output enables GitHub to surface test results in the PR UI.
+      # Artifact upload uses if: always() so results are available even on failure.
       - name: Run unit tests
         run: poetry run pytest -W ignore --tb=short --junitxml=test-results.xml
 
@@ -80,16 +97,20 @@ jobs:
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
+    # Gate on lint + test -- no point building an image from broken code.
     needs: [lint, test]
     steps:
       - uses: actions/checkout@v4
 
+      # Validates the Dockerfile builds successfully. Image is not pushed
+      # to a registry -- that would be a CD step in a deploy workflow.
       - name: Build Docker image
         run: docker build -t chatty-backend:${{ github.sha }} ./app
 
   openapi:
     name: Generate OpenAPI Spec
     runs-on: ubuntu-latest
+    # Gate on lint + test -- spec should only be generated from verified code.
     needs: [lint, test]
     defaults:
       run:
@@ -115,6 +136,8 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
+      # Generates the spec offline by importing the FastAPI app directly --
+      # no server startup needed. Artifact is downloadable from the Actions tab.
       - name: Generate OpenAPI spec
         run: poetry run python scripts/generate_openapi.py openapi.json
 
