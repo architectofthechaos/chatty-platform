@@ -1,10 +1,11 @@
 """
 Logging configuration and utilities.
 """
+
 import logging
 import os
 import sys
-from typing import Any, Dict
+from typing import Any
 
 import structlog
 from structlog.stdlib import LoggerFactory
@@ -36,7 +37,7 @@ def configure_logging() -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer()
+            structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
         logger_factory=LoggerFactory(),
@@ -61,8 +62,8 @@ def get_logger(name: str) -> structlog.BoundLogger:
 def log_request_info(
     method: str,
     path: str,
-    headers: Dict[str, str],
-    query_params: Dict[str, Any],
+    headers: dict[str, str],
+    query_params: dict[str, Any],
     client_ip: str,
     user_agent: str,
 ) -> None:
@@ -115,15 +116,15 @@ def log_error(
         "error_message": error_message,
         "client_ip": client_ip,
     }
-    
+
     if exception:
         log_data["exception_type"] = type(exception).__name__
         log_data["exception"] = str(exception)
-    
+
     logger.error("Request error occurred", **log_data)
 
 
-def _sanitize_headers(headers: Dict[str, str]) -> Dict[str, str]:
+def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
     """Remove sensitive headers from logging."""
     sensitive_headers = {
         "authorization",
@@ -131,12 +132,12 @@ def _sanitize_headers(headers: Dict[str, str]) -> Dict[str, str]:
         "x-api-key",
         "x-auth-token",
     }
-    
+
     sanitized = {}
     for key, value in headers.items():
         if key.lower() in sensitive_headers:
             sanitized[key] = "[REDACTED]"
         else:
             sanitized[key] = value
-    
+
     return sanitized

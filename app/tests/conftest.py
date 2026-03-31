@@ -1,14 +1,15 @@
 """
 Pytest configuration and shared fixtures for testing.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from chatty.core.database import Base, get_db
 from chatty.main import app
-from chatty.core.database import get_db, Base
 
 # Hardcoded test database URL - simple and straightforward
 TEST_DATABASE_URL = "sqlite:///./test.db"
@@ -48,13 +49,14 @@ def db_session(test_session_factory):
 @pytest.fixture
 def client(test_session_factory):
     """Create a test client with database dependency override."""
+
     def override_get_db():
         session = test_session_factory()
         try:
             yield session
         finally:
             session.close()
-    
+
     app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
     # Clean up dependency override
@@ -68,9 +70,9 @@ def client_with_clean_db(client, db_session):
     for table in reversed(Base.metadata.sorted_tables):
         db_session.execute(table.delete())
     db_session.commit()
-    
+
     yield client
-    
+
     # Clean up after test as well
     for table in reversed(Base.metadata.sorted_tables):
         db_session.execute(table.delete())

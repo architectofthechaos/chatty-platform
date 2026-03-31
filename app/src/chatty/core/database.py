@@ -1,16 +1,15 @@
 """
 Database configuration and session management.
 """
+
 import os
 import uuid
+from collections.abc import Generator
 from datetime import datetime
-from typing import Generator
 
-from sqlalchemy import create_engine, Column, String, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, DateTime, String, create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.types import TypeDecorator, CHAR
+from sqlalchemy.orm import Session, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./chatty.db")
 
@@ -30,22 +29,18 @@ Base = declarative_base()
 # TODO - Probs best to move to models folder
 class BaseModel(Base):
     """Base model with common fields."""
+
     __abstract__ = True
-    
-    id = Column(String(36), primary_key=True,  default=lambda: str(uuid.uuid4()))
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     created_date = Column(DateTime, default=datetime.utcnow, nullable=False)
-    last_updated_date = Column(
-        DateTime, 
-        default=datetime.utcnow, 
-        onupdate=datetime.utcnow, 
-        nullable=False
-    )
+    last_updated_date = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 def get_db() -> Generator[Session, None, None]:
     """
     Dependency to get database session.
-    
+
     Yields:
         Session: SQLAlchemy database session
     """
