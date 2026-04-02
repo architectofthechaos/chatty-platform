@@ -54,9 +54,12 @@ Timebox: 2-4 hours. Quality and clarity over scope.
 ### 6. DB Migration Instrumentation
 - [ ] Add Alembic as a dependency
 - [ ] Initialize Alembic config (`alembic init`)
-- [ ] Create initial migration from existing models
-- [ ] Remove the "drop all tables on startup" behavior from `main.py`
-- [ ] Document how to run migrations (`alembic upgrade head`)
+- [ ] Wire `alembic/env.py` to read `DATABASE_URL` from environment
+- [ ] Auto-generate initial migration from existing SQLAlchemy models
+- [ ] Remove the `Base.metadata.drop_all()` + `create_tables()` from `main.py` startup
+- [ ] Add `alembic upgrade head` to docker-compose entrypoint so migrations run automatically on `docker compose up`
+- [ ] Document manual workflow: developer changes model → runs `alembic revision --autogenerate` → reviews migration → commits
+- [ ] Note in RATIONALE.md: in production, separate migration step from app deploy for safe rollbacks
 
 ### 7. Socket.IO Error Handling (fix in-code TODOs)
 - [ ] Create `core/socketio_errors.py` with decorator-based error handler

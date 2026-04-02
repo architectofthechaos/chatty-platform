@@ -7,7 +7,6 @@ import os
 import socketio
 from fastapi import FastAPI
 
-from chatty.core.database import create_tables
 from chatty.core.logging import configure_logging, get_logger
 from chatty.core.middleware import ErrorLoggingMiddleware, LoggingMiddleware
 from chatty.routers import chatroom_participants, chatrooms, health, hello, messages, users
@@ -94,20 +93,10 @@ app.add_middleware(ErrorLoggingMiddleware)
 app.add_middleware(LoggingMiddleware)
 
 
-# Create database tables on startup
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database tables on application startup."""
+    """Log application startup. Schema is managed by Alembic migrations."""
     logger.info("Starting up Chatty Backend application")
-
-    # Clean out existing database and create fresh tables
-    from chatty.core.database import Base, engine
-
-    Base.metadata.drop_all(bind=engine)  # Drop all existing tables
-    logger.info("Existing database tables dropped")
-
-    create_tables()
-    logger.info("Fresh database tables created successfully")
 
 
 @app.on_event("shutdown")
