@@ -53,7 +53,7 @@ The implemented CI is the first stage of a broader pipeline. Below is the full f
 │             ▼                                                           │
 │  ┌──────────────────────┐    ┌──────────────────────────┐               │
 │  │ 2. Unit Tests        │    │ 3. Security Scans        │               │
-│  │    pytest --cov      │    │    SAST (Bandit/Semgrep) │               │
+│  │    pytest --cov      │    │    CodeQL (SAST)         │               │
 │  │    coverage report   │    │    pip-audit (deps)      │               │
 │  │    to PR comment     │    │                          │               │
 │  └──────────┬───────────┘    └─────────────┬────────────┘               │
@@ -358,27 +358,25 @@ Connection pooling becomes critical as pods scale. Each Chatty pod opens a pool 
 
 ## Cloud Spend Management
 
-Cost management is built into the infrastructure decisions rather than treated as a separate concern.
+The biggest cost lever for Chatty is environment differentiation. Dev and staging do not need to match production. The Terraform tfvars already separate environments, so the same module produces different infrastructure: spot instances and single-AZ RDS for non-production, on-demand nodes and multi-AZ RDS for production.
 
-**Right-sizing by environment.** The Terraform module structure uses tfvars to differentiate environments. Dev and staging use spot instances for EKS node groups, single-AZ RDS, and smaller instance sizes. Production uses on-demand nodes and multi-AZ RDS for reliability. This is the biggest cost lever: not running production-grade infrastructure for non-production workloads.
+Beyond that, three practices keep spend visible and controlled:
 
-**Non-production auto-shutdown.** Dev and staging environments don't need to run 24/7. Scheduled scaling (Kubernetes CronJobs or AWS Instance Scheduler) can scale down EKS node groups and stop RDS instances outside business hours, significantly reducing non-production compute costs.
+1. **Shut down what's not in use.** Dev and staging don't need to run nights and weekends. Scheduled scaling (CronJob to scale EKS nodes to zero, stop RDS instances outside business hours) is the simplest way to cut non-production cost without any architectural change.
 
-**Budget alerts and anomaly detection.** AWS Budgets are configured per environment with alerts at 50%, 80%, and 100% of the monthly target. AWS Cost Anomaly Detection catches unexpected spikes (e.g., a misconfigured auto-scaler or a runaway job). Alerts go to a shared Slack channel or PagerDuty so the team can respond before the bill grows.
+2. **Tag everything.** Every resource gets `environment`, `team`, and `service` tags. Without tags, cost reports are a single number. With tags, you can answer "how much does Chatty cost in staging vs. production" or "which team's workload drove the spike this month." Budget alerts at 50%, 80%, and 100% thresholds ensure no one is surprised at month-end.
 
-**Savings Plans.** For stable baseline compute (production EKS nodes, RDS), Compute Savings Plans lock in a discounted rate in exchange for a 1-year commitment. This is applied only to production workloads with predictable usage, not to dev/staging where usage fluctuates.
-
-**Tagging.** Every resource is tagged with `environment`, `team`, and `service`. This enables cost allocation by team and service in AWS Cost Explorer, making it clear who owns what spend.
+3. **Commit to baseline, flex for the rest.** Production EKS nodes and RDS run 24/7 with predictable load. Savings Plans lock in a lower rate for that baseline. Everything above baseline (HPA scaling during traffic spikes, dev/staging with variable usage) stays on-demand. This avoids over-committing while still capturing savings on the workload that's always running.
 
 ---
 
 ## General SDLC
 
-**Trunk-based development.** Short-lived feature branches off main, merged back via PR within a day or two. No long-lived develop or release branches. This keeps integration simple and pairs naturally with the CI/CD pipeline described above.
+Chatty uses trunk-based development: short-lived feature branches off main, merged via PR within a day or two. No long-lived develop or release branches. This keeps the CI/CD pipeline described above simple since there's only one branch to build, test, and deploy.
 
-**Feature flags.** New features are merged behind environment variable flags (e.g., `FEATURE_THREADED_REPLIES=false`). This decouples deployment from release: code can be deployed to production without being exposed to users, then enabled by flipping the flag. At this stage of maturity, simple env var flags are sufficient. A dedicated service like LaunchDarkly can be adopted later if the team needs user-level targeting or gradual rollouts.
+New features are merged behind environment variable flags (e.g., `FEATURE_THREADED_REPLIES=false`). This separates deploying code from releasing it to users. A feature can sit in production, tested and ready, and get enabled by changing a config value. No redeploy needed. Env var flags are the right starting point for Chatty's size. A service like LaunchDarkly makes sense later if the team needs per-user targeting or percentage rollouts.
 
-**Environment parity.** Dev, staging, and production run the same Docker image, same migrations, same config structure. Only the values differ (via tfvars and env vars). This is already in place through the Terraform and docker-compose setup.
+Dev, staging, and production run the same Docker image, same migrations, same config structure. Only the values change (via tfvars and env vars). This is already the case with the current docker-compose and Terraform setup. A bug that exists in production also exists in staging, which makes it reproducible before it reaches users.
 
 ---
 
@@ -386,20 +384,26 @@ Cost management is built into the infrastructure decisions rather than treated a
 
 ### Observability
 
-Chatty already has structured JSON logging via structlog. To build a production observability stack:
+Chatty already has structured JSON logging via structlog. The missing piece is a way to collect, store, and visualize that data across pods. The standard approach is three signals (logs, metrics, traces) collected separately and viewed together through Grafana:
+
+- **Logs**: Chatty pods already emit structured JSON via structlog. A log collector (Promtail) ships them to Loki. Every log entry includes a request ID, so you can trace a single user's message from the HTTP handler through the database write to the Socket.IO emission across pods.
+- **Metrics**: A FastAPI middleware (like `prometheus-fastapi-instrumentator`) exposes a `/metrics` endpoint on each pod. Prometheus scrapes it every 15-30 seconds and stores the time-series data. This is where request rates, latencies, and error counts come from.
+- **Traces**: OpenTelemetry SDK instruments the app to capture the full lifecycle of a request across services. Tempo stores the trace data.
+
+Grafana ties all three together. When you see a latency spike on a dashboard chart, you click into the specific time range, see the traces that caused it, and drill down into the logs for those requests. The diagram below shows how data flows from pods to dashboards:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ CHATTY PODS                                                             │
 │                                                                         │
-│  structlog (JSON) ──→ Fluentd/Promtail ──→ Loki                        │
-│  /metrics endpoint ──→ Prometheus scrape                                │
-│  OpenTelemetry SDK ──→ Tempo (traces)                                   │
+│  structlog (JSON) ──→ Promtail ──→ Loki (log storage)                  │
+│  /metrics endpoint ──→ Prometheus (metric storage, scrapes every 15s)   │
+│  OpenTelemetry SDK ──→ Tempo (trace storage)                            │
 └─────────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ GRAFANA DASHBOARDS                                                      │
+│ GRAFANA (single dashboard, queries all three backends)                  │
 │                                                                         │
 │  API Health:                                                            │
 │    request rate, p50/p95/p99 latency, error rate by endpoint            │
@@ -415,11 +419,11 @@ Chatty already has structured JSON logging via structlog. To build a production 
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Every log entry includes a request ID so you can trace a single user's message from the HTTP handler through the database write to the Socket.IO emission across pods. When a Grafana metric spikes, you click through to the traces that caused it.
-
 The existing `/health` endpoint would be split into separate liveness and readiness probes for Kubernetes pod lifecycle management.
 
 ### SLIs and SLOs for Chatty
+
+Observability data is only useful if you define what "healthy" means. The table below sets specific targets for Chatty and ties each one to the metric that measures it:
 
 | SLI | SLO | How it's measured |
 |---|---|---|
@@ -429,7 +433,7 @@ The existing `/health` endpoint would be split into separate liveness and readin
 | Socket.IO delivery latency | < 500ms | Time from POST /messages to new_message event received |
 | Message persistence success | 100% | Failed DB writes counter (should be zero) |
 
-Alerting is based on SLO burn rate rather than static thresholds, routed through Alertmanager to PagerDuty.
+Alerting is based on SLO burn rate rather than static thresholds. A burn-rate alert fires when the service is consuming its error budget faster than expected (e.g., "at this rate, we'll breach the monthly SLO in 6 hours"). This avoids noisy alerts from brief spikes while catching sustained degradation early. Alerts route through Alertmanager to PagerDuty.
 
 ---
 

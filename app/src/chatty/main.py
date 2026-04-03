@@ -16,7 +16,7 @@ configure_logging()
 logger = get_logger("main")
 
 cors_raw = os.environ.get("CORS_ALLOWED_ORIGINS", "*")
-cors_origins = "*" if cors_raw == "*" else [o.strip() for o in cors_raw.split(",")]
+cors_origins = "*" if cors_raw == "*" else [o.strip() for o in cors_raw.split(",")] 
 
 sio = socketio.AsyncServer(cors_allowed_origins=cors_origins, async_mode="asgi")
 
